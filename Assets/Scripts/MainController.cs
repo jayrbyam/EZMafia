@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using SimpleJSON;
+using UnityEngine.SceneManagement;
 
 public class MainController : MonoBehaviour {
 
@@ -31,7 +32,7 @@ public class MainController : MonoBehaviour {
 	public GameObject originalPlayer;
 	public GameObject timeRemaining;
 
-    private string serverPath = "http://206.174.122.196:8080/api/Game/";
+    private string serverPath = "http://206.174.123.164:8080/api/Game/";
 	private List<string> greetings = new List<string> () { "What's good", "Sup", "Hey", "Hi", "Hello", "Howdy", "Welcome", "Yo", "Greetings", "Salutations" };
 	private string results;
 	private int backAction = 0;
@@ -52,7 +53,7 @@ public class MainController : MonoBehaviour {
 					user.Username = userData["Username"].Value;
 					user.FirstName = userData["FirstName"].Value;
 					user.LastName = userData["LastName"].Value;
-					user.SessionId = int.Parse(userData["SessionId"].Value);
+					user.SessionId = userData["SessionId"].Value == null ? (int?)null : int.Parse(userData["SessionId"].Value);
 					PlayerPrefs.SetString("Username", user.Username);
 					GameObject.Find ("Greeting").GetComponent<Text> ().text = greetings[Random.Range(0, greetings.Count)] + ", " + user.Username + "!";
 					signIn.SetActive (false);
@@ -67,7 +68,6 @@ public class MainController : MonoBehaviour {
 		}
 	}
 	
-	// Update is called once per frame
 	void Update () {
 		// Rotate the loading indicator if the loading screen is showing
 		if (loadingScreen.activeSelf) loadingScreen.transform.GetChild(0).localEulerAngles = new Vector3(0f, 0f, loadingScreen.transform.GetChild(0).localEulerAngles.z - 2f);
@@ -170,7 +170,7 @@ public class MainController : MonoBehaviour {
 	}
 
 	public void SearchSessions(InputField input) {
-		// Clear search resuluts
+		// Clear search results
 		noResults.SetActive(true);
 		foreach (Transform child in originalSearchResult.transform.parent) {
 			if (child != originalSearchResult.transform)
@@ -178,19 +178,21 @@ public class MainController : MonoBehaviour {
 		}
 
 		WWW search = GET ("Sessions?search=" + input.text, delegate {
-			noResults.SetActive(false);
-			JSONNode resultData = JSON.Parse(results);
-			int i = 0;
-			while (resultData[i] != null) {
-				GameObject listItem = Instantiate(originalSearchResult);
-				listItem.transform.GetChild(0).GetComponent<Text>().text = resultData[i]["Name"].Value;
-				listItem.transform.GetChild(1).GetComponent<Text>().text = resultData[i]["Owner"]["Username"].Value;
-				listItem.transform.GetChild(2).GetComponent<Text>().text = resultData[i]["Id"].Value;
-				listItem.transform.SetParent(originalSearchResult.transform.parent);
-				Button listItemButton = listItem.GetComponent<Button>();
-				listItem.GetComponent<Button>().onClick.AddListener(() => SessionSelected(listItem.transform.GetChild(2).GetComponent<Text>().text));
-				listItem.SetActive(true);
-				++i;
+			if (results != "[]") {
+				noResults.SetActive(false);
+				JSONNode resultData = JSON.Parse(results);
+				int i = 0;
+				while (resultData[i] != null) {
+					GameObject listItem = Instantiate(originalSearchResult);
+					listItem.transform.GetChild(0).GetComponent<Text>().text = resultData[i]["Name"].Value;
+					listItem.transform.GetChild(1).GetComponent<Text>().text = resultData[i]["Owner"]["Username"].Value;
+					listItem.transform.GetChild(2).GetComponent<Text>().text = resultData[i]["Id"].Value;
+					listItem.transform.SetParent(originalSearchResult.transform.parent);
+					Button listItemButton = listItem.GetComponent<Button>();
+					listItem.GetComponent<Button>().onClick.AddListener(() => SessionSelected(listItem.transform.GetChild(2).GetComponent<Text>().text));
+					listItem.SetActive(true);
+					++i;
+				}
 			}
 		});
 	}
@@ -209,15 +211,9 @@ public class MainController : MonoBehaviour {
 		if (input.text == "")
 			return;
 
-		POST ("Session", new Dictionary<string, string>() { {"Name", input.text}, {"OwnerId", PlayerPrefs.GetInt("UserId").ToString()} }, delegate {
-			session.Id = int.Parse(results);
-			session.Name = input.text;
-			session.OwnerId = user.Id;
-			session.OwnerFirstName = user.FirstName;
-			session.OwnerLastName = user.LastName;
-
+		POST ("Session", new Dictionary<string, string>() { {"Name", input.text}, {"OwnerId", PlayerPrefs.GetInt("UserId").ToString()}, {"TimeLimit", "0"} }, delegate {
+			SessionSelected(results);
 			HideCreateSession();
-			ShowSessionDetails();
 		});
 	}
 
@@ -330,7 +326,22 @@ public class MainController : MonoBehaviour {
 	public void EndSession() {
 		confirmation.message.text = "Are you sure you want to end the session?";
 		confirmation.onConfirm = delegate {
-			Debug.Log("End Session");
+			GET ("SessionDelete" + "?Id=" + session.Id, delegate {
+				SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+			});
 		};
+		confirmation.Show();
+	}
+
+	public void SaveTimeLimit(InputField input) {
+		if (input.text == "") {
+			input.text = "0";
+			return;
+		}
+
+		POST ("Session", new Dictionary<string, string>() { 
+			{"Id", session.Id.ToString()},
+			{"TimeLimit", input.text} 
+		}, delegate {});
 	}
 }

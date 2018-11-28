@@ -16,13 +16,18 @@ public class Confirmation : MonoBehaviour {
 	}
 
 	public void Hide() {
-		GetComponent<Fader> ().Fade (2f, 0f);
-		panel.GetComponent<MoveTo> ().GoHome (2f);
-		gameObject.SetActive (false);
+		StartCoroutine(HideCR());
 	}
 	
 	public void Confirm() {
 		onConfirm();
 		Hide();
+	}
+
+	private IEnumerator HideCR() {
+		GetComponent<Fader> ().Fade (2f, 0f);
+		panel.GetComponent<MoveTo> ().GoHome (2f);
+		while (panel.GetComponent<MoveTo> ().bIsAnimating) yield return null;
+		gameObject.SetActive (false);
 	}
 }
