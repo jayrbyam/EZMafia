@@ -24,6 +24,7 @@ public class MainController : MonoBehaviour {
 	// Session details page
 	public GameObject sessionDetails;
 	public Text sessionName;
+	public GameObject endSessionButton;
 	public Text sessionOwnerName;
 	public GameObject firstDivider;
 	public GameObject actionsPanel;
@@ -31,6 +32,7 @@ public class MainController : MonoBehaviour {
 	public GameObject playersLabel;
 	public GameObject originalPlayer;
 	public GameObject timeRemaining;
+	public GameObject startGameButton;
 
     private string serverPath = "http://206.174.123.164:8080/api/Game/";
 	private List<string> greetings = new List<string> () { "What's good", "Sup", "Hey", "Hi", "Hello", "Howdy", "Welcome", "Yo", "Greetings", "Salutations" };
@@ -38,6 +40,8 @@ public class MainController : MonoBehaviour {
 	private int backAction = 0;
 	private SessionModel session = new SessionModel();
 	private UserModel user = new UserModel();
+	private bool? playerUpdate = null; // null: no update. true: player update. false: owner update
+	private float updateTime = 0f;
 
 	// Use this for initialization
 	void Start () {
@@ -58,7 +62,13 @@ public class MainController : MonoBehaviour {
 					GameObject.Find ("Greeting").GetComponent<Text> ().text = greetings[Random.Range(0, greetings.Count)] + ", " + user.Username + "!";
 					signIn.SetActive (false);
 					GET ("SessionByOwner?Id=" + user.Id, delegate {
-						if (results == "") Invoke ("ShowStarter", 0f);
+						if (results == "") {
+							if (user.SessionId != null) {
+								backButton.SetActive(true);
+								SessionSelected(user.SessionId.ToString(), 3);
+							}
+							else Invoke ("ShowStarter", 0f);
+						}
 						else SessionSelected(results);
 					});
 				}
@@ -71,6 +81,18 @@ public class MainController : MonoBehaviour {
 	void Update () {
 		// Rotate the loading indicator if the loading screen is showing
 		if (loadingScreen.activeSelf) loadingScreen.transform.GetChild(0).localEulerAngles = new Vector3(0f, 0f, loadingScreen.transform.GetChild(0).localEulerAngles.z - 2f);
+	
+		if (playerUpdate != null) {
+			if (updateTime >= 3) {
+				updateTime = 0f;
+				if (playerUpdate == true) {
+					// Is the session still going?
+				} else {
+					SessionSelected(session.Id.ToString(), 2, true, true);
+				}
+			}
+			updateTime += Time.deltaTime;
+		}
 	}
 
 	public void ShowSignInComponents() {
@@ -99,8 +121,33 @@ public class MainController : MonoBehaviour {
 			searchresults.SetActive (false);
 			break;
 		case 2:
-			sessionDetails.GetComponent<MoveTo> ().GoHome (2f);
-			backAction = 1;
+			confirmation.message.text = "Wanna leave the session?";
+			confirmation.onConfirm = delegate {
+				POST ("User?name=" + user.Username, new Dictionary<string, string>() { 
+					{"SessionId", "-1"},
+					{"Username", user.Username}
+				},
+				delegate {
+					sessionDetails.GetComponent<MoveTo> ().GoHome (2f);
+					backAction = 1;
+					SearchSessions(null);
+					playerUpdate = null;
+				});
+			};
+			confirmation.Show();
+			break;
+		case 3:
+			confirmation.message.text = "Wanna leave the session?";
+			confirmation.onConfirm = delegate {
+				POST ("User?name=" + user.Username, new Dictionary<string, string>() { 
+					{"SessionId", "-1"},
+					{"Username", user.Username}
+				},
+				delegate {
+					SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+				});
+			};
+			confirmation.Show();
 			break;
 		}
 
@@ -128,9 +175,7 @@ public class MainController : MonoBehaviour {
 				user.LastName = userData["LastName"].Value;
 				user.SessionId = userData["SessionId"].Value == null ? (int?)null : int.Parse(userData["SessionId"].Value);
 				PlayerPrefs.SetString("Username", user.Username);
-				GameObject.Find ("Greeting").GetComponent<Text> ().text = greetings[Random.Range(0, greetings.Count)] + ", " + input.text + "!";
-				signIn.GetComponent<MoveTo> ().GoHome (2f);
-				ShowStarter ();
+				SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
 			}
 		});
 	}
@@ -154,6 +199,7 @@ public class MainController : MonoBehaviour {
 				user.FirstName = firstName.text;
 				user.LastName = lastName.text;
 				user.SessionId = (int?)null;
+				PlayerPrefs.SetString("Username", user.Username);
 				GameObject.Find ("Greeting").GetComponent<Text> ().text = greetings[Random.Range(0, greetings.Count)] + ", " + username.text + "!";
 				signIn.GetComponent<MoveTo> ().GoHome (2f);
 				ShowStarter ();
@@ -177,24 +223,26 @@ public class MainController : MonoBehaviour {
 				Destroy (child.gameObject);
 		}
 
-		WWW search = GET ("Sessions?search=" + input.text, delegate {
-			if (results != "[]") {
-				noResults.SetActive(false);
-				JSONNode resultData = JSON.Parse(results);
-				int i = 0;
-				while (resultData[i] != null) {
-					GameObject listItem = Instantiate(originalSearchResult);
-					listItem.transform.GetChild(0).GetComponent<Text>().text = resultData[i]["Name"].Value;
-					listItem.transform.GetChild(1).GetComponent<Text>().text = resultData[i]["Owner"]["Username"].Value;
-					listItem.transform.GetChild(2).GetComponent<Text>().text = resultData[i]["Id"].Value;
-					listItem.transform.SetParent(originalSearchResult.transform.parent);
-					Button listItemButton = listItem.GetComponent<Button>();
-					listItem.GetComponent<Button>().onClick.AddListener(() => SessionSelected(listItem.transform.GetChild(2).GetComponent<Text>().text));
-					listItem.SetActive(true);
-					++i;
+		if (input != null) {
+			WWW search = GET ("Sessions?search=" + input.text, delegate {
+				if (results != "[]") {
+					noResults.SetActive(false);
+					JSONNode resultData = JSON.Parse(results);
+					int i = 0;
+					while (resultData[i] != null) {
+						GameObject listItem = Instantiate(originalSearchResult);
+						listItem.transform.GetChild(0).GetComponent<Text>().text = resultData[i]["Name"].Value;
+						listItem.transform.GetChild(1).GetComponent<Text>().text = resultData[i]["Owner"]["Username"].Value;
+						listItem.transform.GetChild(2).GetComponent<Text>().text = resultData[i]["Id"].Value;
+						listItem.transform.SetParent(originalSearchResult.transform.parent);
+						Button listItemButton = listItem.GetComponent<Button>();
+						listItem.GetComponent<Button>().onClick.AddListener(() => JoinSession(listItem.transform.GetChild(1).GetComponent<Text>().text, listItem.transform.GetChild(2).GetComponent<Text>().text));
+						listItem.SetActive(true);
+						++i;
+					}
 				}
-			}
-		});
+			});
+		}
 	}
 
 	public void ShowCreateSession() {
@@ -211,7 +259,7 @@ public class MainController : MonoBehaviour {
 		if (input.text == "")
 			return;
 
-		POST ("Session", new Dictionary<string, string>() { {"Name", input.text}, {"OwnerId", PlayerPrefs.GetInt("UserId").ToString()}, {"TimeLimit", "0"} }, delegate {
+		POST ("Session", new Dictionary<string, string>() { {"Id", "-1"}, {"Name", input.text}, {"OwnerId", PlayerPrefs.GetInt("UserId").ToString()}, {"TimeLimit", "0"} }, delegate {
 			SessionSelected(results);
 			HideCreateSession();
 		});
@@ -222,13 +270,13 @@ public class MainController : MonoBehaviour {
 		backButton.SetActive (false);
 	}
 
-	private WWW GET(string url, System.Action onComplete) {
+	private WWW GET(string url, System.Action onComplete, bool noLoadingScreen = false) {
 		WWW www = new WWW (serverPath + url);
-		StartCoroutine (WaitForRequest (www, onComplete));
+		StartCoroutine (WaitForRequest (www, onComplete, noLoadingScreen));
 		return www;
 	}
 
-	private WWW POST(string url, Dictionary<string,string> post, System.Action onComplete) {
+	private WWW POST(string url, Dictionary<string,string> post, System.Action onComplete, bool noLoadingScreen = false) {
 		WWWForm form = new WWWForm();
 
 		foreach(KeyValuePair<string,string> post_arg in post) {
@@ -237,12 +285,12 @@ public class MainController : MonoBehaviour {
 
 		WWW www = new WWW(serverPath + url, form);
 
-		StartCoroutine(WaitForRequest(www, onComplete));
+		StartCoroutine(WaitForRequest(www, onComplete, noLoadingScreen));
 		return www;
 	}
 
-	private IEnumerator WaitForRequest(WWW www, System.Action onComplete) {
-		loadingScreen.SetActive (true);
+	private IEnumerator WaitForRequest(WWW www, System.Action onComplete, bool noLoadingScreen) {
+		if (!noLoadingScreen) loadingScreen.SetActive (true);
 
 		yield return www;
 
@@ -265,8 +313,10 @@ public class MainController : MonoBehaviour {
 		createSession.SetActive (false);
 	}
 
-	private void ShowSessionDetails() {
-		sessionDetails.GetComponent<MoveTo> ().MoveToPos (new Vector3 (sessionDetails.transform.localPosition.x - 2000, sessionDetails.transform.localPosition.y), 2f);
+	private void ShowSessionDetails(bool inPlace) {
+		playerUpdate = session.OwnerId != user.Id;
+
+		if (!inPlace) sessionDetails.GetComponent<MoveTo> ().MoveToPos (new Vector3 (sessionDetails.transform.localPosition.x - 2000, sessionDetails.transform.localPosition.y), 2f);
 		sessionName.text = session.Name;
 		if (session.OwnerId == user.Id) {
 			timeLimitInput.transform.parent.gameObject.SetActive (true);
@@ -276,8 +326,14 @@ public class MainController : MonoBehaviour {
 			sessionOwnerName.gameObject.SetActive(false);
 			actionsPanel.SetActive(false);
 			firstDivider.SetActive(false);
+			endSessionButton.SetActive(true);
+			startGameButton.SetActive(true);
 
 			// Populate Users list
+			foreach (Transform child in originalPlayer.transform.parent) {
+				if (child != originalPlayer.transform)
+					Destroy(child.gameObject);
+			}
 			foreach (UserModel userModel in session.Users) {
 				GameObject listItem = Instantiate(originalPlayer);
 				listItem.transform.GetChild(0).GetComponent<Text>().text = 
@@ -289,6 +345,8 @@ public class MainController : MonoBehaviour {
 			sessionOwnerName.gameObject.SetActive(true);
 			actionsPanel.SetActive(true);
 			firstDivider.SetActive(true);
+			endSessionButton.SetActive(false);
+			startGameButton.SetActive(false);
 			sessionOwnerName.text = "Host: " + session.OwnerFirstName + " " + session.OwnerLastName;
 			timeLimitInput.transform.parent.gameObject.SetActive (false);
 			playersLabel.SetActive (false);
@@ -297,7 +355,7 @@ public class MainController : MonoBehaviour {
 		timeRemaining.GetComponent<Text> ().text = session.TimeLimit != 0 ? session.TimeLimit + ":00" : "";
 	}
 
-	private void SessionSelected(string hiddenId) {
+	private void SessionSelected(string hiddenId, int back = 2, bool inPlace = false, bool noLoadingScreen = false) {
 		GET ("Session?Id=" + hiddenId, delegate {
 			JSONNode sessionData = JSON.Parse(results);
 			session.Id = int.Parse(sessionData["Id"].Value);
@@ -308,6 +366,7 @@ public class MainController : MonoBehaviour {
 			session.TimeLimit = int.Parse(sessionData["TimeLimit"].Value);
 
 			int userIdx = 0;
+			session.Users = new List<UserModel>();
 			while (sessionData["Users"][userIdx] != null) {
 				session.Users.Add(new UserModel {
 					Id = int.Parse(sessionData["Users"][userIdx]["Id"]),
@@ -318,9 +377,23 @@ public class MainController : MonoBehaviour {
 				userIdx++;
 			}
 
-			ShowSessionDetails();
-			backAction = 2;
-		});
+			ShowSessionDetails(inPlace);
+			backAction = back;
+		}, noLoadingScreen);
+	}
+
+	private void JoinSession(string owner, string hiddenId) {
+		confirmation.message.text = "Join " + owner + "'s session?";
+		confirmation.onConfirm = delegate {
+			POST ("User?name=" + user.Username, new Dictionary<string, string>() { 
+				{"SessionId", hiddenId},
+				{"Username", user.Username}
+			},
+			delegate {
+				SessionSelected(hiddenId);
+			});
+		};
+		confirmation.Show();
 	}
 
 	public void EndSession() {
@@ -343,5 +416,20 @@ public class MainController : MonoBehaviour {
 			{"Id", session.Id.ToString()},
 			{"TimeLimit", input.text} 
 		}, delegate {});
+	}
+
+	public void RemoveSessionPlayer(Text label) {
+		string username = label.text.Split(' ')[0];
+		confirmation.message.text = "Are you sure you want to remove " + username + " from this session?";
+		confirmation.onConfirm = delegate {
+			POST ("User?name=" + username, new Dictionary<string, string>() { 
+				{"SessionId", "-1"},
+				{"Username", username}
+			},
+			delegate {
+				SessionSelected(session.Id.ToString(), 2, true);
+			});
+		};
+		confirmation.Show();
 	}
 }
