@@ -12,10 +12,12 @@ public class SessionModel {
 	public string OwnerLastName { get; set; }
 	public int TimeLimit { get; set; }
 	public List<UserModel> Users { get; set; }
+	public GameModel Game { get; set; }
 
 	public SessionModel() {
 		TimeLimit = 0;
 		Users = new List<UserModel>();
+		Game = new GameModel();
 	}
 
 }

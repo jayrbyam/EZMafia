@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using SimpleJSON;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI.ProceduralImage;
 
 public class MainController : MonoBehaviour {
 
@@ -33,6 +34,8 @@ public class MainController : MonoBehaviour {
 	public GameObject originalPlayer;
 	public GameObject timeRemaining;
 	public GameObject startGameButton;
+	public GameObject roleScreen;
+	public List<Texture2D> personas;
 
     private string serverPath = "http://206.174.123.164:8080/api/Game/";
 	private List<string> greetings = new List<string> () { "What's good", "Sup", "Hey", "Hi", "Hello", "Howdy", "Welcome", "Yo", "Greetings", "Salutations" };
@@ -41,10 +44,18 @@ public class MainController : MonoBehaviour {
 	private SessionModel session = new SessionModel();
 	private UserModel user = new UserModel();
 	private bool? playerUpdate = null; // null: no update. true: player update. false: owner update
-	private float updateTime = 0f;
+	private float updateTime = 3f;
+	private Color green;
+	private Color gray = new Color(0.42f, 0.42f, 0.42f, 1f);
+	private bool endGameTriggered = false;
 
 	// Use this for initialization
 	void Start () {
+		green = startGameButton.GetComponent<ProceduralImage>().color;
+
+		// Randomly assign image for persona
+		roleScreen.transform.GetChild(1).GetComponent<RawImage>().texture = personas[Random.Range(0, personas.Count - 1)];
+
 		// Prompt for the username by default. If the username is already known, don't need to.
 		if (PlayerPrefs.HasKey ("Username")) {
 			GET ("User?name=" + PlayerPrefs.GetString ("Username"), delegate {
@@ -85,10 +96,15 @@ public class MainController : MonoBehaviour {
 		if (playerUpdate != null) {
 			if (updateTime >= 3) {
 				updateTime = 0f;
+				SessionSelected(session.Id.ToString(), 2, true, true);
 				if (playerUpdate == true) {
 					// Is the session still going?
 				} else {
-					SessionSelected(session.Id.ToString(), 2, true, true);
+					startGameButton.GetComponent<Button>().enabled = session.Users.Count >= 5;
+					startGameButton.GetComponent<ProceduralImage>().color = 
+						startGameButton.GetComponent<Button>().enabled ? green : gray;
+					startGameButton.GetComponentInChildren<Text>().color = 
+						startGameButton.GetComponent<Button>().enabled ? Color.white : new Color(Color.white.r, Color.white.g, Color.white.b, 0.5f);
 				}
 			}
 			updateTime += Time.deltaTime;
@@ -315,44 +331,86 @@ public class MainController : MonoBehaviour {
 
 	private void ShowSessionDetails(bool inPlace) {
 		playerUpdate = session.OwnerId != user.Id;
+		bool gameInProgress = session.Game.Id != 0;
+		// Get player matching user
+		PlayerModel currentPlayer = new PlayerModel();
+		foreach (PlayerModel player in session.Game.Players) {
+			if (player.UserId == user.Id) {
+				currentPlayer = player;
+				break;
+			}
+		}
+
+		if (gameInProgress && session.Game.MafiaWon != null && !endGameTriggered) {
+			Invoke("EndGame", 15f);
+			endGameTriggered = true;
+		}
 
 		if (!inPlace) sessionDetails.GetComponent<MoveTo> ().MoveToPos (new Vector3 (sessionDetails.transform.localPosition.x - 2000, sessionDetails.transform.localPosition.y), 2f);
 		sessionName.text = session.Name;
 		if (session.OwnerId == user.Id) {
-			timeLimitInput.transform.parent.gameObject.SetActive (true);
-			playersLabel.SetActive (true);
+			timeLimitInput.transform.parent.gameObject.SetActive (!gameInProgress);
 			originalPlayer.transform.parent.gameObject.SetActive (true);
-			timeLimitInput.text = session.TimeLimit.ToString ();
+			//timeLimitInput.text = session.TimeLimit.ToString ();
 			sessionOwnerName.gameObject.SetActive(false);
-			actionsPanel.SetActive(false);
-			firstDivider.SetActive(false);
+			actionsPanel.SetActive(gameInProgress);
+			actionsPanel.transform.GetChild(2).gameObject.SetActive(false);
+			firstDivider.SetActive(gameInProgress);
 			endSessionButton.SetActive(true);
-			startGameButton.SetActive(true);
-
-			// Populate Users list
-			foreach (Transform child in originalPlayer.transform.parent) {
-				if (child != originalPlayer.transform)
-					Destroy(child.gameObject);
-			}
-			foreach (UserModel userModel in session.Users) {
-				GameObject listItem = Instantiate(originalPlayer);
-				listItem.transform.GetChild(0).GetComponent<Text>().text = 
-					userModel.Username + " (" + userModel.FirstName + " " + userModel.LastName + ")";
-				listItem.transform.SetParent(originalPlayer.transform.parent);
-				listItem.SetActive(true);
-			}
+			startGameButton.SetActive(!gameInProgress);
 		} else {
 			sessionOwnerName.gameObject.SetActive(true);
 			actionsPanel.SetActive(true);
+			actionsPanel.transform.GetChild(2).gameObject.SetActive(!gameInProgress);
 			firstDivider.SetActive(true);
 			endSessionButton.SetActive(false);
 			startGameButton.SetActive(false);
 			sessionOwnerName.text = "Host: " + session.OwnerFirstName + " " + session.OwnerLastName;
 			timeLimitInput.transform.parent.gameObject.SetActive (false);
-			playersLabel.SetActive (false);
-			originalPlayer.transform.parent.gameObject.SetActive (false);
 		}
-		timeRemaining.GetComponent<Text> ().text = session.TimeLimit != 0 ? session.TimeLimit + ":00" : "";
+
+		actionsPanel.transform.GetChild(0).gameObject.SetActive(gameInProgress && currentPlayer.Alive);
+		actionsPanel.transform.GetChild(1).gameObject.SetActive(gameInProgress && currentPlayer.Alive);
+		actionsPanel.transform.GetChild(3).gameObject.SetActive(gameInProgress && !currentPlayer.Alive && session.Game.MafiaWon == null);
+		actionsPanel.transform.GetChild(4).gameObject.SetActive(session.Game.MafiaWon == true);
+		actionsPanel.transform.GetChild(5).gameObject.SetActive(session.Game.MafiaWon == false);
+
+		// Populate Users list
+		foreach (Transform child in originalPlayer.transform.parent) {
+			if (child != originalPlayer.transform)
+				Destroy(child.gameObject);
+		}
+		if (gameInProgress) {
+			foreach (PlayerModel player in session.Game.Players) {
+				GameObject listItem = Instantiate(originalPlayer);
+				listItem.transform.GetChild(0).GetComponent<Text>().text = 
+					player.User.Username + " (" + player.User.FirstName + " " + player.User.LastName + ")";
+				listItem.transform.SetParent(originalPlayer.transform.parent);
+				listItem.transform.GetChild(1).gameObject.SetActive(player.Alive && session.Game.MafiaWon == null);
+				listItem.transform.GetChild(1).GetComponent<RectTransform>().anchoredPosition = 
+					new Vector2(session.OwnerId == user.Id && session.Game.MafiaWon == null ? -80 : -5, listItem.transform.GetChild(1).GetComponent<RectTransform>().anchoredPosition.y);
+				listItem.transform.GetChild(2).gameObject.SetActive(!player.Alive && session.Game.MafiaWon == null);
+				listItem.transform.GetChild(2).GetComponent<RectTransform>().anchoredPosition = 
+					new Vector2(session.OwnerId == user.Id && session.Game.MafiaWon == null ? -80 : -5, listItem.transform.GetChild(2).GetComponent<RectTransform>().anchoredPosition.y);
+				listItem.transform.GetChild(3).gameObject.SetActive(session.OwnerId == user.Id && session.Game.MafiaWon == null);
+				listItem.transform.GetChild(4).gameObject.SetActive(session.Game.MafiaWon != null && player.Mafia);
+				listItem.SetActive(true);
+			}
+		} else {
+			foreach (UserModel userModel in session.Users) {
+				GameObject listItem = Instantiate(originalPlayer);
+				listItem.transform.GetChild(0).GetComponent<Text>().text = 
+					userModel.Username + " (" + userModel.FirstName + " " + userModel.LastName + ")";
+				listItem.transform.SetParent(originalPlayer.transform.parent);
+				listItem.transform.GetChild(1).gameObject.SetActive(false);
+				listItem.transform.GetChild(2).gameObject.SetActive(false);
+				listItem.transform.GetChild(3).gameObject.SetActive(session.OwnerId == user.Id);
+				listItem.transform.GetChild(4).gameObject.SetActive(false);
+				listItem.SetActive(true);
+			}
+		}
+
+		timeRemaining.GetComponent<Text> ().text = "";//session.TimeLimit != 0 ? session.TimeLimit + ":00" : "";
 	}
 
 	private void SessionSelected(string hiddenId, int back = 2, bool inPlace = false, bool noLoadingScreen = false) {
@@ -375,6 +433,31 @@ public class MainController : MonoBehaviour {
 					LastName = sessionData["Users"][userIdx]["LastName"]
 				});
 				userIdx++;
+			}
+
+			if (int.Parse(sessionData["Game"]["Id"].Value) != 0) {
+				session.Game.Id = int.Parse(sessionData["Game"]["Id"].Value);
+				session.Game.SessionId = session.Id;
+				session.Game.InProgress = sessionData["Game"]["InProgress"].AsBool;
+				session.Game.MafiaWon = sessionData["Game"]["MafiaWon"].Value == null ? (bool?)null : sessionData["Game"]["MafiaWon"].AsBool;
+				
+				userIdx = 0;
+				session.Game.Players = new List<PlayerModel>();
+				while (sessionData["Game"]["Players"][userIdx] != null) {
+					session.Game.Players.Add(new PlayerModel {
+						Id = int.Parse(sessionData["Game"]["Players"][userIdx]["Id"]),
+						UserId = int.Parse(sessionData["Game"]["Players"][userIdx]["UserId"]),
+						User = new UserModel() {
+							Username = sessionData["Game"]["Players"][userIdx]["User"]["Username"].Value,
+							FirstName = sessionData["Game"]["Players"][userIdx]["User"]["FirstName"].Value,
+							LastName = sessionData["Game"]["Players"][userIdx]["User"]["LastName"].Value
+						},
+						GameId = int.Parse(sessionData["Game"]["Players"][userIdx]["GameId"]),
+						Alive = sessionData["Game"]["Players"][userIdx]["Alive"].AsBool,
+						Mafia = sessionData["Game"]["Players"][userIdx]["Mafia"].AsBool
+					});
+					userIdx++;
+				}
 			}
 
 			ShowSessionDetails(inPlace);
@@ -420,16 +503,77 @@ public class MainController : MonoBehaviour {
 
 	public void RemoveSessionPlayer(Text label) {
 		string username = label.text.Split(' ')[0];
+		bool gameInProgress = session.Game.Id != 0;
 		confirmation.message.text = "Are you sure you want to remove " + username + " from this session?";
+		if (gameInProgress) confirmation.message.text = "Are you sure " + username + " is dead?";
 		confirmation.onConfirm = delegate {
-			POST ("User?name=" + username, new Dictionary<string, string>() { 
-				{"SessionId", "-1"},
-				{"Username", username}
-			},
+			if (gameInProgress) {
+				GET ("KillPlayer?username=" + username + "&gameId=" + session.Game.Id.ToString(),
+				delegate {
+					SessionSelected(session.Id.ToString(), 2, true);
+				});
+			} else {
+				POST ("User?name=" + username, new Dictionary<string, string>() { 
+					{"SessionId", "-1"},
+					{"Username", username}
+				},
+				delegate {
+					SessionSelected(session.Id.ToString(), 2, true);
+				});
+			}
+		};
+		confirmation.Show();
+	}
+
+	public void StartGame() {
+		GET ("StartGame?sessionId=" + session.Id.ToString(), delegate {
+			SessionSelected(session.Id.ToString(), 2, true);
+		});
+	}
+
+	public void ShowRole() {
+		confirmation.message.text = "Are you sure no one is peeking?";
+		confirmation.onConfirm = delegate {
+			// Get player matching user
+			PlayerModel currentPlayer = new PlayerModel();
+			foreach (PlayerModel player in session.Game.Players) {
+				if (player.UserId == user.Id) {
+					currentPlayer = player;
+					break;
+				}
+			}
+
+			roleScreen.SetActive(true);
+			roleScreen.transform.GetChild(0).gameObject.SetActive(currentPlayer.Mafia);
+			roleScreen.transform.GetChild(2).gameObject.SetActive(currentPlayer.Mafia);
+			roleScreen.transform.GetChild(3).gameObject.SetActive(currentPlayer.Mafia);
+			roleScreen.transform.GetChild(4).gameObject.SetActive(currentPlayer.Mafia);
+			roleScreen.transform.GetChild(5).gameObject.SetActive(!currentPlayer.Mafia);
+		};
+		confirmation.Show();
+	}
+
+	public void HideRole() {
+		roleScreen.SetActive(false);
+	}
+
+	public void IDied() {
+		confirmation.message.text = "Are you sure you are dead?";
+		confirmation.onConfirm = delegate {
+			GET ("KillPlayer?username=" + user.Username + "&gameId=" + session.Game.Id.ToString(),
 			delegate {
 				SessionSelected(session.Id.ToString(), 2, true);
 			});
 		};
 		confirmation.Show();
+	}
+
+	private void EndGame() {
+		GET ("EndGame?gameId=" + session.Game.Id.ToString(),
+		delegate {
+			session.Game = new GameModel();
+			endGameTriggered = false;
+			SessionSelected(session.Id.ToString(), 2, true);
+		});
 	}
 }
