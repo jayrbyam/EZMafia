@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="3.0" xmlns:edmx="http://schemas.microsoft.com/ado/2009/11/edmx">
+ <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <edmx:Designer xmlns="http://schemas.microsoft.com/ado/2009/11/edmx">
+    <!-- Diagram content (shape and connector positions) -->
+    <edmx:Diagrams>
+      <Diagram DiagramId="f97a645cccad4c719da4719e65672676" Name="Diagram1">
+        <EntityTypeShape EntityType="EZMafiaModel.Game" Width="1.5" PointX="3" PointY="1.125" IsExpanded="true" />
+        <EntityTypeShape EntityType="EZMafiaModel.Player" Width="1.5" PointX="5.25" PointY="2.75" IsExpanded="true" />
+        <EntityTypeShape EntityType="EZMafiaModel.Session" Width="1.5" PointX="0.75" PointY="2.625" IsExpanded="true" />
+        <EntityTypeShape EntityType="EZMafiaModel.User" Width="1.5" PointX="3" PointY="4.25" IsExpanded="true" />
+        <AssociationConnector Association="EZMafiaModel.FK_Game_Session" ManuallyRouted="false" />
+        <AssociationConnector Association="EZMafiaModel.FK_Player_Game" ManuallyRouted="false" />
+        <AssociationConnector Association="EZMafiaModel.FK_Player_User" ManuallyRouted="false" />
+        <AssociationConnector Association="EZMafiaModel.FK_Session_User" ManuallyRouted="false" />
+        <AssociationConnector Association="EZMafiaModel.FK_User_Session" ManuallyRouted="false" />
+      </Diagram>
+    </edmx:Diagrams>
+  </edmx:Designer>
+</edmx:Edmx>
